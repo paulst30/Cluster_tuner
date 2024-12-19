@@ -17,7 +17,7 @@ This module can be imported into your projects to fine-tune clustering algorithm
 1. **Clone the repository:**
 
 ```bash
-git clone https://github.com/yourusername/cluster-tuning.git
+git clone https://github.com/paulst30/Cluster_tuner
 ```
 
 2. **Import the module:**
