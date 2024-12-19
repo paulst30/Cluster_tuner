@@ -350,7 +350,6 @@ def cluster_tune(data, estimator, metric, param_range, steps, verbose=False):
     # Determine the search direction
     direction = find_direction(initial_scoring, starting_parameter, metric)
     
-    print(f"Direction: {direction}")
 
     # Dynamically search for optimal parameters
     best_cluster = dynamic_search(data, estimator, metric, starting_parameter, param_range, direction, steps, verbose = verbose)
