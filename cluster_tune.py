@@ -26,6 +26,7 @@ import pandas as pd
 from sklearn.cluster import DBSCAN, HDBSCAN
 from sklearn.metrics import silhouette_score, davies_bouldin_score
 import numpy as np
+import sys
 
 
 # Utility functions
@@ -226,9 +227,9 @@ def find_direction(initial_scoring, starting_parameter, metric):
     if all_equal:
         # If all scores are the same, determine the direction based on starting parameter
         # Assume the starting parameter is the upper bound of the parameter range
-        if starting_parameter == initial_scoring.index.max():
+        if starting_parameter == initial_scoring['parameter'].max():
             return -1  # Search left
-        elif starting_parameter == initial_scoring.index.min():
+        elif starting_parameter == initial_scoring['parameter'].min():
             return 1  # Search right
         else:
             raise ValueError("Starting parameter is not at a boundary for uniform scores.")
@@ -248,7 +249,7 @@ def find_direction(initial_scoring, starting_parameter, metric):
 def dynamic_search(data, estimator, metric, parameter, param_range, direction, steps, step_size = None,
                    verbose=False, best_parameter=None, 
                    best_score=-1, last_score=-1, best_DB_index=float('inf'), 
-                   last_DB_index=float('inf'), stand_still=0, best_cluster=None):
+                   last_DB_index=float('inf'), stand_still=0, iteration=0, param_log = None, best_cluster=None):
     """
     Dynamic search for clustering optimization.
 
@@ -273,22 +274,47 @@ def dynamic_search(data, estimator, metric, parameter, param_range, direction, s
         best_cluster (Series): Best cluster labels found during the search.
     """
     # Unpack parameter bounds
+    iteration += 1
     param_min, param_max = param_range
     parameter_type = type(parameter)
     if step_size is None:
-        step_size = float(((param_max - param_min) / steps) / 2)
+        step_size = parameter_type(((param_max - param_min) / steps) / 2)
 
-    # Evaluate stopping criteria
-    if (step_size < (param_max - param_min) / 32) or (stand_still > 9):
-        print(f"Stop tuning at parameter = {best_parameter}, Silhouette Score: {best_score}, Davies-Bouldin Index: {best_DB_index}")
-        return best_cluster
+    # Establish minimum stepping
+    if isinstance(parameter, (int, np.integer)):  # Includes numpy int types
+        min_step = 1
+    elif isinstance(parameter, (float, np.floating)):  # Includes numpy float types
+        min_step = 0.01
 
     # Update parameter and check bounds
-    new_parameter = parameter_type(parameter + (step_size * direction))
+    new_parameter = parameter_type(parameter + (max(step_size, min_step) * direction))
     if new_parameter < param_min or new_parameter > param_max:
         if verbose:
-            print(f"Parameter {new_parameter} out of bounds. Stopping search.")
+            print(f"Parameter value of {new_parameter} out of bounds. Reducing step size.")
+        step_size /= 2
+        return dynamic_search(data, estimator, metric, parameter, param_range, 
+                          direction, steps, step_size, verbose, best_parameter, 
+                          best_score, last_score, best_DB_index, last_DB_index, 
+                          stand_still, iteration, param_log, best_cluster)
+    
+    # update parameter log
+    if param_log is None: 
+        param_log = []
+    param_log.append(new_parameter)
+
+    # Evaluate stopping criteria
+    if (iteration > 15): 
+        print("Maximum of 15 iterations reached.")
+        print(f"Stop tuning at parameter = {best_parameter}, Silhouette Score: {best_score}, Davies-Bouldin Index: {best_DB_index}")
+        return best_cluster 
+    if (stand_still > 9):
+        print("No progress made in the last 9 iterations.")
+        print(f"Stop tuning at parameter = {best_parameter}, Silhouette Score: {best_score}, Davies-Bouldin Index: {best_DB_index}")
         return best_cluster
+    if (len(param_log)>=5) and (new_parameter == param_log[-3] == param_log[-5]):
+        print("Search is going in cirles.")
+        print(f"Stop tuning at parameter = {best_parameter}, Silhouette Score: {best_score}, Davies-Bouldin Index: {best_DB_index}")
+        return best_cluster        
 
     # Calculate clusters and scores
     cluster, n_clusters, noise = calculate_clusters(data, estimator, new_parameter, verbose)
@@ -314,14 +340,14 @@ def dynamic_search(data, estimator, metric, parameter, param_range, direction, s
 
     # Log progress
     if verbose:
-        print(f"Parameter: {new_parameter:.4f}, Step Size: {step_size:.4f}, Direction: {direction}")
-        print(f"Score: {score:.4f}, DB Index: {DB_index:.4f}")
+        print(f"Next step: {max(step_size, min_step):.4f}, Direction: {direction}")
+        print("-"*20)
 
     # Continue search
     return dynamic_search(data, estimator, metric, new_parameter, param_range, 
                           direction, steps, step_size, verbose, best_parameter, 
                           best_score, last_score, best_DB_index, last_DB_index, 
-                          stand_still, best_cluster)
+                          stand_still, iteration, param_log, best_cluster)
 
 
 # Cluster-tune function
@@ -350,10 +376,14 @@ def cluster_tune(data, estimator, metric, param_range, steps, verbose=False):
     # Determine the search direction
     direction = find_direction(initial_scoring, starting_parameter, metric)
     
-
     # Dynamically search for optimal parameters
     best_cluster = dynamic_search(data, estimator, metric, starting_parameter, param_range, direction, steps, verbose = verbose)
 
+    # check if cluster could be found
+    if best_cluster is None:
+       print("Could not find any clusters. Try different settings or another algorithm.")
+    
     return best_cluster
+
 
 
