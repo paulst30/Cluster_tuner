@@ -113,10 +113,10 @@ def score_cluster(data, cluster, n_clusters, verbose=False):
 
     Returns:
         score (float): Silhouette Score (-1 if not computable).
-        DB_index (float): Davies-Bouldin Index (0 if not computable).
+        DB_index (float): Davies-Bouldin Index (Inf if not computable).
     """
     # Default values for invalid clustering
-    score, DB_index = -1, 0
+    score, DB_index = -1, np.Inf
 
     if n_clusters > 1:
         try:
