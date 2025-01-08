@@ -48,6 +48,7 @@ def setup(estimator, param_range, steps):
   if estimator == 'HDBSCAN':
     parameter_name = 'min_cluster_size'
     param_values = np.linspace(param_min, param_max, steps + 1).astype('int')
+    param_values = np.unique(param_values)
 
   elif estimator == 'DBSCAN':
     parameter_name = 'eps'
@@ -163,12 +164,14 @@ def find_start(data, estimator, metric, param_grid, verbose=False):
 
     # Track scoring results
     scoring_results = []
+    cluster_results = []
 
     # Iterate through the parameter grid
     for parameter in param_values:
         cluster, n_cluster, noise = calculate_clusters(data, estimator, parameter, verbose)
         score, DB_index = score_cluster(data, cluster, n_cluster, verbose)
         scoring_results.append({'parameter': parameter, 'score': score, 'DB_index': DB_index})
+        cluster_results.append({'parameter': parameter,  'cluster' : cluster})
 
     # Create DataFrame from results
     initial_scoring = pd.DataFrame(scoring_results)
@@ -186,14 +189,20 @@ def find_start(data, estimator, metric, param_grid, verbose=False):
         if verbose:
             print("Could not find good starting parameter. Search starts at the top end of the parameter grid.")
         starting_parameter = param_values[-1]
+        best_score = -1
+        best_DB_index = float('inf')
+        best_cluster = None
     else:
         starting_parameter = initial_scoring.loc[best_index, 'parameter']
+        best_score = initial_scoring.loc[best_index, 'score']
+        best_DB_index = float(initial_scoring.loc[best_index, 'DB_index'])
+        best_cluster = cluster_results[best_index]['cluster']
 
     if verbose:
         print(f"Initial scoring:\n{initial_scoring}")
         print(f"Starting parameter: {starting_parameter}")
 
-    return initial_scoring, starting_parameter
+    return initial_scoring, starting_parameter, best_score, best_DB_index, best_cluster
 
 
 
@@ -275,6 +284,7 @@ def dynamic_search(data, estimator, metric, parameter, param_range, direction, s
     """
     # Unpack parameter bounds
     iteration += 1
+    direction_change = False
     param_min, param_max = param_range
     parameter_type = type(parameter)
     if step_size is None:
@@ -296,6 +306,10 @@ def dynamic_search(data, estimator, metric, parameter, param_range, direction, s
                           direction, steps, step_size, verbose, best_parameter, 
                           best_score, last_score, best_DB_index, last_DB_index, 
                           stand_still, iteration, param_log, best_cluster)
+    if new_parameter == param_min or new_parameter == param_max:
+        if verbose:
+            print(f"Parameter value of {new_parameter} lies on a outer bound. Changing direction.")
+        direction_change = True
     
     # update parameter log
     if param_log is None: 
@@ -335,8 +349,12 @@ def dynamic_search(data, estimator, metric, parameter, param_range, direction, s
         stand_still = 0  # Reset stand_still counter
     else:
         stand_still += 1
-        direction *= -1  # Change search direction
+        direction_change = True
         step_size /= 2  # Reduce step size
+
+    # update direction
+    if direction_change:
+        direction *= -1
 
     # Log progress
     if verbose:
@@ -371,13 +389,24 @@ def cluster_tune(data, estimator, metric, param_range, steps, verbose=False):
     param_grid = setup(estimator, param_range, steps)
 
     # Find starting point through grid-search
-    initial_scoring, starting_parameter = find_start(data, estimator, metric, param_grid, verbose)
+    initial_scoring, starting_parameter, best_score, best_DB_index, best_cluster = find_start(data, estimator, metric, param_grid, verbose)
 
     # Determine the search direction
     direction = find_direction(initial_scoring, starting_parameter, metric)
     
     # Dynamically search for optimal parameters
-    best_cluster = dynamic_search(data, estimator, metric, starting_parameter, param_range, direction, steps, verbose = verbose)
+    best_cluster = dynamic_search(data, 
+                                  estimator, 
+                                  metric, 
+                                  starting_parameter, 
+                                  param_range, 
+                                  direction, 
+                                  steps,
+                                  best_parameter = starting_parameter, 
+                                  best_score = best_score, 
+                                  best_DB_index = best_DB_index,
+                                  best_cluster = best_cluster,
+                                  verbose = verbose)
 
     # check if cluster could be found
     if best_cluster is None:
